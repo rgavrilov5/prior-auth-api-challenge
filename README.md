@@ -1,78 +1,84 @@
-# Oxbridge Health Engineering Challenge: Prior Authorization API
+# Prior Authorization API
 
-Before a patient can have certain procedures, their doctor's office must ask the health plan for approval. This is called a **prior authorization**.
+**What:** An office asks for approval before a patient's procedure. A reviewer decides each procedure, and the patient can see the outcome.
 
-Imagine you've just joined our team. Our Utilization Management (UM) team needs a new prior authorization service, and you're building the backend API. Below is a note from your tech lead, followed by the UM team's requirements in their own words.
+**Why:** The wrong person must not see patient data or make a decision. Every change needs an owner and a history we can explain.
 
----
+**How:** The caller gets a token from the identity service. This API verifies it, authorizes the request, and saves the change and its audit record together in PostgreSQL.
 
-## Note from your tech lead
+## Run it
 
-- **Stack:** Python and PostgreSQL. It should be runnable on AWS; you don't need to deploy it. Framework and libraries are your call.
-- **AI tools:** Use AI coding tools; we do.
-- **Identity:** our identity service issues each caller a token containing their user ID and role. Fake it however you like. You don't need sign-up or login.
-- **Data:** seed data for members, providers, reviewers, coverage and patient–practice links is fine. You don't need screens or endpoints to manage it.
-- We'll be living with this code for years, and the UM team changes its mind often. Write it the way you'd want to find it.
-- These requirements came straight from the business. If something is unclear or seems to contradict something else, make a call and write it down, as you would on the job.
+Requires Docker with Compose:
 
----
+```sh
+docker compose up --build
+```
 
-## Requirements from the Utilization Management team
+Open [the API docs](http://localhost:8000/docs). All seed data is synthetic. The database persists across restarts.
 
-### Who uses it
-- **Members:** our patients.
-- **Provider offices:** doctors' offices submitting requests for their patients.
-- **Reviewers:** our nurses and physicians who decide requests.
-- **Operations admins:** they keep the work moving.
+Run the complete submit → claim → decide → member-view example:
 
-Each of these groups has its own roadmap. Their needs change independently, often on different teams, and we'll be adding new groups (auditors are next).
+```sh
+docker compose exec api .venv/bin/python -m scripts.walkthrough
+```
 
-### Submitting a request
-- Offices submit requests for their patients, but only for patients linked to their practice.
-- A request covers one or more procedures (CPT or HCPCS codes, each with a number of units), a diagnosis (ICD-10), and the planned date of service. Offices can attach a clinical note.
-- We don't accept requests for procedures that have already happened; those go through retro review, which isn't part of this project. We also don't accept requests more than a year out.
-- The patient must have active coverage on the date of service.
-- Our provider offices are nationwide, from Maine to Hawaii.
-- More than 30 units for a single procedure is almost always a typo.
-- Offices complain constantly that when we reject a submission, they can't tell why. Tell them exactly what to fix.
+For a token to paste into **Authorize** in the API docs:
 
-### Reviewing a request
-- Reviewers pick up new requests from the queue. Once a reviewer picks one up, it's theirs until they decide it or an admin hands it to someone else.
-- Some of our physicians also see patients. A reviewer must never review a request for a patient they treat.
-- Reviewers approve or deny each procedure individually, and any denial needs a reason. They submit their decision for the whole request at once.
-- Decisions are final. Appeals are a separate process and not part of this project.
+```sh
+docker compose exec api .venv/bin/python -m scripts.token office-maine
+```
 
-### Who sees what
-- Members can see their requests and whether each procedure was approved. Clinical notes and reviewer reasoning are internal, and members must never see them.
-- Offices see the requests they submitted.
-- Admins see everything.
+Other subjects: `office-hawaii`, `office-colleague`, `partner-maine` (a service principal), `member-1`, `member-2`, `member-3`, `member-uncovered`, `reviewer-1`, `reviewer-2`, `admin-1`. Tokens last one hour. `reviewer-1` treats `member-2` and cannot review their requests.
 
-### Compliance
-- We're audited regularly. For any request, we must be able to show every step: who did what, and when.
-- Last year an audit found a request marked "approved" with no record of who approved it. That cannot happen again.
-- We're a HIPAA-covered entity.
+## Test it
 
-### Support
-- When an office calls to say "my submission didn't go through," our support desk needs to find out what happened.
+```sh
+docker compose --profile test run --build --rm test
+```
 
-### Partners
-- Several large provider groups will connect their own systems directly to this service. Their IT teams will build from our documentation alone.
+Tests use real PostgreSQL and an isolated schema per test. They cover access boundaries, local dates, concurrent writes, safe retries, support traces, audit rollback and final decisions.
 
-### Wishlist (only if you have time)
-- Offices would love to be notified when a decision is made.
-- Team leads want to see how many open requests each reviewer has.
+GitHub Actions reports lint and PostgreSQL integration separately. Integration builds the containers, runs the suite, waits for API readiness, then exercises the full public workflow. Failed runs include container diagnostics; every run removes its test data.
 
----
+Without Docker, install Python 3.12+, [uv](https://docs.astral.sh/uv/) and PostgreSQL 17, create a database, then:
 
-## What to submit
+```sh
+uv sync --frozen
+export DATABASE_URL=postgresql://localhost/prior_auth
+export JWT_SECRET=synthetic-demo-only-signing-key-please-replace
+uv run python -m app.bootstrap --seed
+uv run uvicorn app.main:app --no-access-log
+```
 
-Create your own copy of this repo (**Use this template → Private**), build your solution there using synthetic data only, and add `rgavrilov5` as a collaborator when you're done.
+In another shell, use the same environment and run `uv run python -m scripts.walkthrough`. For tests, set `TEST_DATABASE_URL` to a local test database, then run `uv run pytest`. Checks: `uv run ruff check .` and `uv run ruff format --check .`.
 
-Your README should include:
-- **How to run it.** Step-by-step instructions to run it locally.
-- **Decisions and assumptions.** In particular, anything in the requirements you found unclear or contradictory, and what you decided.
-- **How you used AI.** What you asked it to do, where it got things wrong, and what you changed.
+## Who can do what
 
-## What happens next
+| Caller | Actions |
+| --- | --- |
+| Office or partner system | Submit, list and read its own requests |
+| Member | List and read their own requests and procedure outcomes |
+| Reviewer | See the queue, claim work, read assignments, submit a complete decision |
+| Admin | Read everything, reassign unfinished work, inspect audit and support records |
 
-If your submission moves forward, we'll schedule a 45-minute session where you walk us through your code and make a small change to it live. Please be ready to explain any line in the repo.
+Each group has its own route module and response contract. `PriorAuthorizationService` owns the workflow and caller permissions; `IdempotentWrite` owns safe retries. HTTP wiring stays in `app/main.py`, and error/tracing code in `app/http.py`. See [design choices](docs/design.md), [partner contract](docs/api.md), and the [original challenge](CHALLENGE.md).
+
+## Calls I made where the brief was open
+
+- “Office” means the token's subject, including a partner system. Two callers at one practice cannot read each other's submissions.
+- Clinical notes are optional text, up to 20,000 characters. Offices can read their own notes. Reviewer reasoning stays with reviewers and admins; members receive neither.
+- Dates run from today through the same calendar date next year in the submitting practice's IANA timezone, inclusively. February 29 maps to February 28. Coverage includes both boundary dates.
+- Units must be integers from 1 to 30. Codes are checked for CPT/HCPCS and ICD-10 shape; catalog validation is outside this exercise. Combine duplicate procedure codes.
+- A mixed result ends in `decided`; each procedure says `approved` or `denied`. Denials need a nonblank internal reason. Decisions and submitted content cannot be edited.
+- Reviewers get clinical details after claiming. Admins can reassign claimed, unfinished work, but cannot override a treating-patient conflict or decide on a reviewer's behalf.
+- Every write needs a UUID `Idempotency-Key`. Retrying returns the same resource's current state. Changing the body or operation requires a new key. Successful keys are retained for this exercise.
+
+## Back burner
+
+Reads use the primary database and one committed snapshot per GET. A read already running can show its earlier snapshot after a write finishes. No replica or cache yet. Follow-ups: [read freshness #1](https://github.com/spfuzzylink/prior-auth-api-challenge-submission/issues/1), [real identity service #2](https://github.com/spfuzzylink/prior-auth-api-challenge-submission/issues/2), [AWS and patient-data readiness #3](https://github.com/spfuzzylink/prior-auth-api-challenge-submission/issues/3), [notifications and workload counts #4](https://github.com/spfuzzylink/prior-auth-api-challenge-submission/issues/4).
+
+The demo key and database-owner account are local conveniences. The container can run on AWS with PostgreSQL on RDS; production credentials, transport security and audit retention belong in the deployment issue.
+
+## AI use
+
+I used Codex to map requirements, implement the API, write PostgreSQL integration tests and review the result. I steered it toward client-obtained identity, server-side authorization, idempotent writes, and a small backlog instead of speculative infrastructure. Review caught a startup race, fixed with a `/health` readiness check. A second pass moved role checks into the service and separated programming errors from retryable database failures. CodeRabbit then caught a mixed-state retry response and a direct-SQL procedure insert gap; both now have regression tests. Independent review and the PostgreSQL suite verify each iteration before publication.
