@@ -8,7 +8,7 @@ Imagine you've just joined our team. Our Utilization Management (UM) team needs 
 
 ## Note from your tech lead
 
-- **Stack:** Python and PostgreSQL. Framework and libraries are your call.
+- **Stack:** Python and PostgreSQL. It should be runnable on AWS; you don't need to deploy it. Framework and libraries are your call.
 - **AI tools:** Use AI coding tools; we do.
 - **Identity:** our identity service issues each caller a token containing their user ID and role. Fake it however you like. You don't need sign-up or login.
 - **Data:** seed data for members, providers, reviewers, coverage and patient–practice links is fine. You don't need screens or endpoints to manage it.
@@ -69,7 +69,7 @@ Each of these groups has its own roadmap. Their needs change independently, ofte
 Create your own copy of this repo (**Use this template → Private**), build your solution there using synthetic data only, and add `rgavrilov5` as a collaborator when you're done.
 
 Your README should include:
-- **How to run it.** Ideally a single `docker compose up`.
+- **How to run it.** Step-by-step instructions to run it locally.
 - **Decisions and assumptions.** In particular, anything in the requirements you found unclear or contradictory, and what you decided.
 - **How you used AI.** What you asked it to do, where it got things wrong, and what you changed.
 
