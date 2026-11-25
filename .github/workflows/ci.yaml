@@ -1,0 +1,22 @@
+name: API checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.13.7"
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: docker compose --profile test run --build --rm test
+      - run: docker compose up --build -d --wait api
+      - run: docker compose exec -T api .venv/bin/python -m scripts.walkthrough
+      - if: always()
+        run: docker compose down --volumes

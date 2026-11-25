@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: prior_auth
+      POSTGRES_PASSWORD: local-demo-only
+      POSTGRES_DB: prior_auth
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prior_auth -d prior_auth"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  migrate:
+    build: .
+    environment: &environment
+      DATABASE_URL: postgresql://prior_auth:local-demo-only@db:5432/prior_auth
+      JWT_SECRET: ${JWT_SECRET:-synthetic-demo-only-signing-key-please-replace}
+    command: [".venv/bin/python", "-m", "app.bootstrap", "--seed"]
+    depends_on:
+      db:
+        condition: service_healthy
+  api:
+    build: .
+    environment: *environment
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - .venv/bin/python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 3s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  test:
+    profiles: [test]
+    build:
+      context: .
+      target: test
+    environment:
+      TEST_DATABASE_URL: postgresql://prior_auth:local-demo-only@db:5432/prior_auth
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  postgres_data:
