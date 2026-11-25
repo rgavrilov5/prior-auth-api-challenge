@@ -50,8 +50,11 @@ def authenticate(
         ) from None
     actor = Actor(user["id"], user["role"], user["practice_id"])
     request.state.actor_id = actor.id
-    db.execute("SELECT set_config('app.actor_id', %s, true)", (actor.id,))
-    db.execute("SELECT set_config('app.trace_id', %s, true)", (request.state.trace_id,))
+    # Transaction-local values cannot leak into the next caller on this pooled connection.
+    db.execute(
+        "SELECT set_config('app.actor_id', %s, true), set_config('app.trace_id', %s, true)",
+        (actor.id, request.state.trace_id),
+    )
     return actor
 
 

@@ -101,28 +101,12 @@ def unexpected_error(request: Request, exc: Exception) -> JSONResponse:
         )
     )
     if isinstance(exc, (psycopg.OperationalError, psycopg.InterfaceError, PoolTimeout)):
-        return error_response(
-            request,
-            503,
-            [
-                {
-                    "field": "request",
-                    "code": "unavailable",
-                    "message": "Retry with the same write key",
-                }
-            ],
-        )
-    return error_response(
-        request,
-        500,
-        [
-            {
-                "field": "request",
-                "code": "internal_error",
-                "message": "Unexpected server error; contact support with this request ID",
-            }
-        ],
-    )
+        status, code = 503, "unavailable"
+        message = "Retry with the same write key"
+    else:
+        status, code = 500, "internal_error"
+        message = "Unexpected server error; contact support with this request ID"
+    return error_response(request, status, [{"field": "request", "code": code, "message": message}])
 
 
 async def trace_and_record(request: Request, call_next):
@@ -134,6 +118,9 @@ async def trace_and_record(request: Request, call_next):
         response = unexpected_error(request, exc)
     response.headers["X-Request-ID"] = request.state.trace_id
     response.headers["Cache-Control"] = "no-store"
+    # Routine probes and documentation fetches should not bury real support calls.
+    if request.url.path in {"/health", "/docs", "/openapi.json", "/redoc"}:
+        return response
     route = request.scope.get("route")
     event = {
         "request_id": request.state.trace_id,
@@ -143,10 +130,10 @@ async def trace_and_record(request: Request, call_next):
         "status": response.status_code,
         "error_codes": request.state.error_codes,
     }
-    if request.url.path not in {"/health", "/docs", "/openapi.json", "/redoc"}:
-        try:
-            await run_in_threadpool(record_access, request.app, event)
-        except Exception:
-            logger.error("support_store_unavailable request_id=%s", request.state.trace_id)
-        logger.info(json.dumps(event))
+    try:
+        await run_in_threadpool(record_access, request.app, event)
+    except Exception:
+        # Preserve a support trail even when the database cannot accept the access record.
+        logger.error("support_store_unavailable request_id=%s", request.state.trace_id)
+    logger.info(json.dumps(event))
     return response

@@ -38,6 +38,8 @@ docker compose --profile test run --build --rm test
 
 Tests use real PostgreSQL and an isolated schema per test. They cover access boundaries, local dates, concurrent writes, safe retries, support traces, audit rollback and final decisions.
 
+GitHub Actions reports lint and PostgreSQL integration separately. Integration builds the containers, runs the suite, waits for API readiness, then exercises the full public workflow. Failed runs include container diagnostics; every run removes its test data.
+
 Without Docker, install Python 3.12+, [uv](https://docs.astral.sh/uv/) and PostgreSQL 17, create a database, then:
 
 ```sh

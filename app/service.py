@@ -18,7 +18,12 @@ def now() -> datetime:
 
 
 class PriorAuthorizationService:
-    """One caller and one transaction. The caller owns commit and rollback."""
+    """Workflow for one verified actor and one transaction.
+
+    Supply matching transaction-local app.actor_id and app.trace_id audit context.
+    The caller owns commit/rollback. Returned records contain internal fields;
+    HTTP adapters apply the caller-specific response models.
+    """
 
     def __init__(
         self, db: Connection[dict], actor: Actor, *, clock: Callable[[], datetime] | None = None
@@ -51,6 +56,7 @@ class PriorAuthorizationService:
     def _with_procedures(self, rows: list[dict]) -> list[dict]:
         if not rows:
             return []
+        # Batch the page's procedures so list reads do not add a query per request.
         procedures = self.db.execute(
             "SELECT * FROM procedures WHERE request_id = ANY(%s) ORDER BY code, id",
             ([row["id"] for row in rows],),
@@ -101,6 +107,7 @@ class PriorAuthorizationService:
                 "patient_not_linked",
                 "Patient must be linked to your practice",
             )
+        # The practice's local date is authoritative, including around midnight in Hawaii.
         today = self.clock().astimezone(ZoneInfo(practice["timezone"])).date()
         try:
             last_day = today.replace(year=today.year + 1)
@@ -147,6 +154,7 @@ class PriorAuthorizationService:
         write = IdempotentWrite(self.db, self.actor.id, key, f"claim:{request_id}")
         if existing := write.replay():
             return self.get(existing)
+        # Keep the state check and assignment under one lock so competing claims have one winner.
         row = self.db.execute(
             "SELECT * FROM requests WHERE id = %s FOR UPDATE", (request_id,)
         ).fetchone()
@@ -169,6 +177,7 @@ class PriorAuthorizationService:
         )
         if existing := write.replay():
             return self.get(existing)
+        # Reassignment takes the same lock; ownership is checked again after any wait.
         row = self.get(request_id, lock=True)
         check_conflict(self.db, self.actor.id, row["member_id"])
         if row["status"] != "in_review":
@@ -178,9 +187,9 @@ class PriorAuthorizationService:
                 "decision_final",
                 "Only an assigned, unfinished request can be decided",
             )
-        submitted = [item.procedure_id for item in body.procedures]
+        submitted = {item.procedure_id for item in body.procedures}
         expected = {item["id"] for item in row["procedures"]}
-        if len(submitted) != len(set(submitted)) or set(submitted) != expected:
+        if len(submitted) != len(body.procedures) or submitted != expected:
             fail(
                 "invalid",
                 "procedures",
@@ -188,6 +197,7 @@ class PriorAuthorizationService:
                 "Decide every procedure exactly once",
             )
         decided_at = self.clock()
+        # Procedure outcomes, final status, trigger-written audit and receipt commit together.
         for item in body.procedures:
             self.db.execute(
                 """UPDATE procedures
@@ -223,6 +233,7 @@ class PriorAuthorizationService:
         if not reviewer:
             fail("invalid", "reviewer_id", "invalid_reviewer", "Choose an existing reviewer")
         check_conflict(self.db, reviewer_id, row["member_id"])
+        # A no-op still gets a retry receipt, but must not invent a reassignment audit event.
         if row["reviewer_id"] != reviewer_id:
             self.db.execute(
                 "UPDATE requests SET reviewer_id = %s WHERE id = %s", (reviewer_id, request_id)

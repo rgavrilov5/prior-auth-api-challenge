@@ -27,6 +27,8 @@ class IdempotentWrite:
         ).hexdigest()
 
     def replay(self) -> UUID | None:
+        """Return the prior resource ID; callers must reload it through current access rules."""
+        # Acquire this key lock before any request row lock, consistently across all writes.
         # Lock the key even before a receipt exists, so concurrent retries cannot both write.
         self.db.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",

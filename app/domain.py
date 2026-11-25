@@ -25,6 +25,8 @@ def fail(kind: ErrorKind, field: str, code: str, message: str) -> Never:
 
 @dataclass(frozen=True)
 class Actor:
+    """A verified identity, not a caller-supplied user ID or role."""
+
     id: str
     role: str
     practice_id: str | None

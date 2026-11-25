@@ -10,6 +10,7 @@ MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
 
 
 def migrate(conn):
+    # Multiple startup jobs may race; apply each migration once, in the same transaction.
     conn.execute("SELECT pg_advisory_xact_lock(682071)")
     conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY)")
     for migration in sorted(MIGRATIONS.glob("*.sql")):
