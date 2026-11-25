@@ -60,7 +60,7 @@ Every response has an `X-Request-ID`. Errors include the same ID and actionable 
 }
 ```
 
-`401`: invalid identity. `403`: wrong role or forbidden relationship. `404`: missing or inaccessible resource. `409`: workflow conflict or reused key. `422`: fix the named fields. `503`: temporary failure; retry with the same key. Keep the key after a timeout: the write may already have committed.
+`401`: invalid identity. `403`: wrong role or forbidden relationship. `404`: missing or inaccessible resource. `409`: workflow conflict or reused key. `422`: fix the named fields. `500`: unexpected server error; contact support with the request ID. `503`: database unavailable; retry with the same key. Keep the key after a timeout: the write may already have committed.
 
 Give support the request ID, not clinical data. An admin can look it up even when validation failed before a request existed. During a database outage, call metadata is available in service logs.
 

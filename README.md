@@ -59,7 +59,7 @@ In another shell, use the same environment and run `uv run python -m scripts.wal
 | Reviewer | See the queue, claim work, read assignments, submit a complete decision |
 | Admin | Read everything, reassign unfinished work, inspect audit and support records |
 
-Each group has its own route module and response contract. Shared workflow: `app/service.py`. Access rules: `app/policy.py`. See [design choices](docs/design.md), [partner contract](docs/api.md), and the [original challenge](CHALLENGE.md).
+Each group has its own route module and response contract. `PriorAuthorizationService` owns the workflow and caller permissions; `IdempotentWrite` owns safe retries. HTTP wiring stays in `app/main.py`, and error/tracing code in `app/http.py`. See [design choices](docs/design.md), [partner contract](docs/api.md), and the [original challenge](CHALLENGE.md).
 
 ## Calls I made where the brief was open
 
@@ -73,10 +73,10 @@ Each group has its own route module and response contract. Shared workflow: `app
 
 ## Back burner
 
-Reads use the primary database and one committed snapshot per GET. A read already running can show its earlier snapshot after a write finishes. No replica or cache yet. Follow-ups: [read freshness #1](https://github.com/spfuzzylink/prior-auth-api-challenge/issues/1), [real identity service #2](https://github.com/spfuzzylink/prior-auth-api-challenge/issues/2), [AWS and patient-data readiness #3](https://github.com/spfuzzylink/prior-auth-api-challenge/issues/3), [notifications and workload counts #4](https://github.com/spfuzzylink/prior-auth-api-challenge/issues/4).
+Reads use the primary database and one committed snapshot per GET. A read already running can show its earlier snapshot after a write finishes. No replica or cache yet. Follow-ups: [read freshness #1](https://github.com/spfuzzylink/prior-auth-api-challenge-submission/issues/1), [real identity service #2](https://github.com/spfuzzylink/prior-auth-api-challenge-submission/issues/2), [AWS and patient-data readiness #3](https://github.com/spfuzzylink/prior-auth-api-challenge-submission/issues/3), [notifications and workload counts #4](https://github.com/spfuzzylink/prior-auth-api-challenge-submission/issues/4).
 
 The demo key and database-owner account are local conveniences. The container can run on AWS with PostgreSQL on RDS; production credentials, transport security and audit retention belong in the deployment issue.
 
 ## AI use
 
-I used Codex to map requirements, implement the API, write PostgreSQL integration tests and review the result. I steered it toward client-obtained identity, server-side authorization, idempotent writes, and a small backlog instead of speculative infrastructure. Independent review caught a startup race: a running container was not necessarily ready. I added a `/health` readiness check before the walkthrough. Review and all 51 PostgreSQL tests passed before publication.
+I used Codex to map requirements, implement the API, write PostgreSQL integration tests and review the result. I steered it toward client-obtained identity, server-side authorization, idempotent writes, and a small backlog instead of speculative infrastructure. Review caught a startup race, fixed with a `/health` readiness check. A second pass moved role checks from routes into the service, so internal callers cannot bypass them, and separated programming errors from retryable database failures. Independent review and the PostgreSQL suite verify each iteration before publication.

@@ -1,5 +1,6 @@
-from app.auth import Actor
-from app.errors import reject
+from psycopg import Connection
+
+from app.domain import Actor, fail
 
 
 def visibility(actor: Actor) -> tuple[str, tuple]:
@@ -22,13 +23,13 @@ def visibility(actor: Actor) -> tuple[str, tuple]:
         case "admin":
             return "TRUE", ()
         case _:
-            reject(403, "role", "forbidden", "Unknown caller role")
+            fail("forbidden", "role", "forbidden", "Unknown caller role")
 
 
-def check_conflict(db, reviewer_id: str, member_id: str) -> None:
+def check_conflict(db: Connection[dict], reviewer_id: str, member_id: str) -> None:
     conflict = db.execute(
         "SELECT 1 FROM reviewer_patients WHERE reviewer_id = %s AND member_id = %s",
         (reviewer_id, member_id),
     ).fetchone()
     if conflict:
-        reject(403, "reviewer_id", "treating_patient", "Reviewer treats this patient")
+        fail("forbidden", "reviewer_id", "treating_patient", "Reviewer treats this patient")

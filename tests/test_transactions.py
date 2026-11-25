@@ -179,7 +179,9 @@ def test_audit_insert_failure_rolls_back_entire_decision(api):
     with api.connect() as db:
         db.execute("""CREATE FUNCTION reject_test_decision_audit() RETURNS trigger
                    LANGUAGE plpgsql AS $$ BEGIN
-                     IF NEW.action = 'decided' THEN RAISE EXCEPTION 'injected audit outage'; END IF;
+                     IF NEW.action = 'decided' THEN
+                       RAISE EXCEPTION 'injected audit outage' USING ERRCODE = '08006';
+                     END IF;
                      RETURN NEW;
                    END $$""")
         db.execute("""CREATE TRIGGER fail_decision_audit BEFORE INSERT ON audit_events

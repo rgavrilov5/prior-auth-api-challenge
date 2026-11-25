@@ -1,5 +1,4 @@
 import os
-from dataclasses import dataclass
 from typing import Annotated
 
 import jwt
@@ -7,7 +6,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.db import DB
-from app.errors import reject
+from app.domain import Actor
 
 ISSUER = "prior-auth-demo"
 AUDIENCE = "prior-auth-api"
@@ -20,13 +19,6 @@ def signing_key() -> str:
     if len(secret) < 32:
         raise RuntimeError("JWT_SECRET must contain at least 32 characters")
     return secret
-
-
-@dataclass(frozen=True)
-class Actor:
-    id: str
-    role: str
-    practice_id: str | None
 
 
 def authenticate(
@@ -64,8 +56,3 @@ def authenticate(
 
 
 Identity = Annotated[Actor, Depends(authenticate)]
-
-
-def allow(actor: Actor, role: str) -> None:
-    if actor.role != role:
-        reject(403, "role", "forbidden", f"This action requires the {role} role")
