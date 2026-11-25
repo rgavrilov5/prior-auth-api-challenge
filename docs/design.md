@@ -47,10 +47,14 @@ Submission creates a new request; claim, decision and reassignment lock an exist
 
 Database triggers append history and reject changes without an actor and trace ID. Deferred constraints require every procedure outcome and its assigned deciding reviewer at commit. A failed audit insert rolls back the decision. Final decisions and audit rows cannot be edited through ordinary SQL.
 
+Submission seals the procedure list before commit. The database rejects an unsealed submission and any later addition, even while the request is still queued. Existing submissions stay sealed when the new migration runs.
+
 Support has a separate PHI-free call record: request ID, actor, route template, status and error codes, including rejected submissions. The same metadata goes to logs during a database outage. Tokens, notes, diagnoses and raw bodies stay out of logs. A database owner can bypass triggers; protected audit exports are [issue #3](https://github.com/spfuzzylink/prior-auth-api-challenge-submission/issues/3).
 
 ## Read more, write less
 
 Lists are capped at 100 and fetch procedures in one batch. GETs use a consistent snapshot on the primary. Writes return after commit. An earlier GET can still return its earlier snapshot; issue a fresh GET after a successful write.
+
+POST retries take the request lock while reloading its status and procedures. That prevents a concurrent decision from changing one half of the response between queries; ordinary GETs keep their snapshot without row locks.
 
 Replica lag, cache invalidation and high-volume freshness guarantees are [issue #1](https://github.com/spfuzzylink/prior-auth-api-challenge-submission/issues/1). Measure demand and agree on the contract before building them.

@@ -1,3 +1,5 @@
+import json
+import logging
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -128,7 +130,7 @@ def test_submission_errors_identify_field_without_echoing_phi(api, procedures, f
         assert db.execute("SELECT count(*) AS n FROM requests").fetchone()["n"] == 0
 
 
-def test_failed_validation_is_traceable_without_phi(api, caplog):
+def test_failed_validation_is_traceable_without_phi(api, prior_auth_logs):
     result = api.call(
         "POST",
         "/office/requests",
@@ -143,8 +145,14 @@ def test_failed_validation_is_traceable_without_phi(api, caplog):
     assert support.json()["status"] == 422
     assert support.json()["route"] == "/office/requests"
     assert support.json()["error_codes"]
-    assert "SENSITIVE" not in support.text + caplog.text
-    assert "SYNTHETIC" not in support.text + caplog.text
+    logged_calls = [
+        json.loads(record.getMessage())
+        for record in prior_auth_logs.records
+        if record.name == "prior_auth" and record.levelno == logging.INFO
+    ]
+    assert any(event["request_id"] == trace and event["status"] == 422 for event in logged_calls)
+    assert "SENSITIVE" not in support.text + prior_auth_logs.text
+    assert "SYNTHETIC" not in support.text + prior_auth_logs.text
     assert api.call("GET", f"/admin/support/{trace}", user="office-maine").status_code == 403
     assert result.headers["cache-control"] == "no-store"
 

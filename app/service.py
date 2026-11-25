@@ -70,7 +70,7 @@ class PriorAuthorizationService:
         self.actor.require_role("office")
         write = IdempotentWrite(self.db, self.actor.id, key, "submit", body.model_dump(mode="json"))
         if existing := write.replay():
-            return self.get(existing)
+            return self.get(existing, lock=True)
         self._validate_submission(body)
         request_id = uuid4()
         self.db.execute(
@@ -91,6 +91,8 @@ class PriorAuthorizationService:
                 "INSERT INTO procedures (id, request_id, code, units) VALUES (%s,%s,%s,%s)",
                 (uuid4(), request_id, procedure.code, procedure.units),
             )
+        # Close the procedure list before commit; the database rejects any later additions.
+        self.db.execute("UPDATE requests SET procedures_sealed = true WHERE id = %s", (request_id,))
         write.record(request_id)
         return self.get(request_id)
 
@@ -153,7 +155,7 @@ class PriorAuthorizationService:
         self.actor.require_role("reviewer")
         write = IdempotentWrite(self.db, self.actor.id, key, f"claim:{request_id}")
         if existing := write.replay():
-            return self.get(existing)
+            return self.get(existing, lock=True)
         # Keep the state check and assignment under one lock so competing claims have one winner.
         row = self.db.execute(
             "SELECT * FROM requests WHERE id = %s FOR UPDATE", (request_id,)
@@ -176,7 +178,7 @@ class PriorAuthorizationService:
             self.db, self.actor.id, key, f"decide:{request_id}", body.model_dump(mode="json")
         )
         if existing := write.replay():
-            return self.get(existing)
+            return self.get(existing, lock=True)
         # Reassignment takes the same lock; ownership is checked again after any wait.
         row = self.get(request_id, lock=True)
         check_conflict(self.db, self.actor.id, row["member_id"])
@@ -218,7 +220,7 @@ class PriorAuthorizationService:
             self.db, self.actor.id, key, f"reassign:{request_id}", {"reviewer_id": reviewer_id}
         )
         if existing := write.replay():
-            return self.get(existing)
+            return self.get(existing, lock=True)
         row = self.get(request_id, lock=True)
         if row["status"] != "in_review":
             fail(

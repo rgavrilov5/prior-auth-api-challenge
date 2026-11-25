@@ -1,3 +1,4 @@
+import logging
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -64,6 +65,19 @@ def decision(request, *, denied=False):
             for item in request["procedures"]
         ]
     }
+
+
+@pytest.fixture
+def prior_auth_logs(caplog):
+    from app.http import logger
+
+    # This logger intentionally does not propagate to the root logger pytest normally captures.
+    logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.DEBUG, logger="prior_auth"):
+            yield caplog
+    finally:
+        logger.removeHandler(caplog.handler)
 
 
 @dataclass
